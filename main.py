@@ -1,164 +1,103 @@
+# main.py — 뇌졸중 예측 실습실: 이 데이터가 무엇인지 소개하는 첫 화면
 import json
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
-# ------------------------------------------------------------------
-# 기본 설정 (브라우저 탭 제목과 아이콘)
-# ------------------------------------------------------------------
-APP_TITLE = "뇌졸중 예측 실습실"
-st.set_page_config(page_title=APP_TITLE, page_icon="🧠", layout="wide")
+st.set_page_config(page_title="뇌졸중 예측 실습실", page_icon="🩺", layout="wide")
+st.title("🩺 뇌졸중 예측 실습실")
+st.write("건강 기록 5,110명분을 읽어 옵니다. 왼쪽 메뉴에서 페이지를 넘기며 들여다보고, 모델을 만들고, 채점합니다.")
 
-DATA_URL = (
-    "https://raw.githubusercontent.com/gim589005/data/refs/heads/main/"
-    "stroke%20(1).csv"
-)
-RECORD_DIR = Path(__file__).parent / "내_기록"
-RECORD_FILE = RECORD_DIR / "기록.json"
+데이터주소 = "https://raw.githubusercontent.com/greatsong/modudata/main/data/stroke.csv"
 
 
-# ------------------------------------------------------------------
-# 데이터 불러오기
-# ------------------------------------------------------------------
-@st.cache_data(show_spinner="데이터를 불러오는 중...")
-def load_data(url: str) -> pd.DataFrame:
-    return pd.read_csv(url, encoding="utf-8")
+@st.cache_data
+def 데이터_읽기():
+    """UTF-8로 저장된 csv를 읽는다. bmi 열의 빈 값은 그대로 빈 값으로 남는다."""
+    return pd.read_csv(데이터주소, encoding="utf-8")
 
 
-def describe_values(s: pd.Series) -> str:
-    """열의 '값의 종류'를 짧은 글로 설명한다."""
-    values = s.dropna().unique()
-    n = len(values)
-    if n <= 6:
-        return ", ".join(str(v) for v in sorted(values, key=str))
-    if pd.api.types.is_numeric_dtype(s):
-        return f"숫자 (최소 {s.min():g} ~ 최대 {s.max():g}, 서로 다른 값 {n}개)"
-    return f"문자 (서로 다른 값 {n}개)"
+df = 데이터_읽기()
+
+저장파일 = Path("내_기록") / "데이터_소개.json"   # 적은 내용을 남겨 두어 새로고침해도 다시 불러온다
 
 
-# ------------------------------------------------------------------
-# 내_기록 폴더의 json 저장 / 불러오기
-# ------------------------------------------------------------------
-def load_record() -> dict:
-    record = {"meanings": {}, "source": ""}
+def 적어둔것_읽기():
+    """전에 적어 둔 내용을 읽는다. 아직 없으면 빈 사전을 돌려준다."""
     try:
-        if RECORD_FILE.exists():
-            data = json.loads(RECORD_FILE.read_text(encoding="utf-8"))
-            record["meanings"] = dict(data.get("meanings", {}))
-            record["source"] = str(data.get("source", ""))
-    except (json.JSONDecodeError, OSError):
-        pass  # 파일이 깨졌으면 빈 기록으로 시작
-    return record
+        return json.loads(저장파일.read_text(encoding="utf-8"))
+    except (FileNotFoundError, ValueError):
+        return {}
 
 
-def save_record(record: dict) -> bool:
-    try:
-        RECORD_DIR.mkdir(parents=True, exist_ok=True)
-        RECORD_FILE.write_text(
-            json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-        return True
-    except OSError:
-        return False
+적어둔것 = 적어둔것_읽기()
+
+st.subheader("한눈에 보기")
+칸1, 칸2, 칸3, 칸4 = st.columns(4)
+칸1.metric("전체 사람 수", f"{len(df):,}명")
+칸2.metric("열 개수", f"{df.shape[1]}개")
+칸3.metric("뇌졸중을 겪은 사람", f"{int(df['stroke'].sum()):,}명")
+칸4.metric("그 비율", f"{df['stroke'].mean() * 100:.2f}%")
+
+st.subheader("열마다 무엇이 들어 있는가")
+st.caption("우리말 뜻 칸은 비어 있습니다. 교재의 열 대응표를 보고 직접 채워 넣으세요. "
+           "적은 내용은 이 브라우저에 저장되어 새로고침해도 남습니다.")
 
 
-def big_card(label: str, value: str) -> str:
-    return f"""
-    <div style="border:1px solid rgba(128,128,128,0.35); border-radius:14px;
-                padding:22px 10px; text-align:center;">
-        <div style="font-size:1rem; opacity:0.75; margin-bottom:6px;">{label}</div>
-        <div style="font-size:2.8rem; font-weight:700; line-height:1.2;">{value}</div>
-    </div>
-    """
+def 값의_종류(열):
+    """숫자 열은 가장 작은 값과 가장 큰 값을, 글자 열은 값의 가짓수와 실제 값을 적는다."""
+    칸 = df[열].dropna()
+    if pd.api.types.is_numeric_dtype(칸) and 칸.nunique() > 2:
+        return f"숫자 {칸.min():g} ~ {칸.max():g}"
+    값들 = sorted(칸.unique().astype(str))
+    return f"{len(값들)}가지 · " + " · ".join(값들)
 
 
-# ------------------------------------------------------------------
-# 화면 시작
-# ------------------------------------------------------------------
-st.title(f"🧠 {APP_TITLE}")
-st.caption("뇌졸중 환자 데이터가 어떤 모습인지 먼저 살펴봐요.")
-
-try:
-    df = load_data(DATA_URL)
-except Exception as e:  # 네트워크 오류 등
-    st.error(f"데이터를 불러오지 못했어요: {e}")
-    st.stop()
-
-# 처음 실행(또는 새로고침) 때 저장된 기록을 한 번만 불러온다
-if "saved" not in st.session_state:
-    loaded = load_record()
-    st.session_state.saved = loaded
-    st.session_state.initial_meanings = dict(loaded["meanings"])
-    st.session_state.initial_source = loaded["source"]
-
-# ---- 1. 큰 숫자 카드 네 개 -------------------------------------------
-total = len(df)
-n_cols = df.shape[1]
-n_stroke = int((df["stroke"] == 1).sum())
-ratio = n_stroke / total * 100 if total else 0
-
-c1, c2, c3, c4 = st.columns(4)
-c1.markdown(big_card("전체 사람 수", f"{total:,}명"), unsafe_allow_html=True)
-c2.markdown(big_card("열 개수", f"{n_cols}개"), unsafe_allow_html=True)
-c3.markdown(big_card("stroke = 1인 사람 수", f"{n_stroke:,}명"), unsafe_allow_html=True)
-c4.markdown(big_card("stroke = 1 비율", f"{ratio:.2f}%"), unsafe_allow_html=True)
-
-# ---- 2. 열 설명표 ----------------------------------------------------
-st.subheader("📋 열 설명표")
-st.caption("‘우리말 뜻’ 칸을 더블클릭해서 교재를 보고 직접 채워 보세요.")
-
-table = pd.DataFrame(
-    {
+# 표를 그릴 때마다 바탕을 새로 만들면 고쳐 쓰던 칸이 지워지므로, 이 페이지를 열 때 한 번만 만든다
+if "열설명표" not in st.session_state:
+    적어둔뜻 = 적어둔것.get("우리말 뜻", {})
+    st.session_state["열설명_바탕"] = pd.DataFrame({
         "열 이름": df.columns,
-        "우리말 뜻": [
-            st.session_state.initial_meanings.get(c, "") for c in df.columns
-        ],
-        "값의 종류": [describe_values(df[c]) for c in df.columns],
-        "빈 값 개수": [int(df[c].isna().sum()) for c in df.columns],
-    }
-)
+        "우리말 뜻": [적어둔뜻.get(열, "") for 열 in df.columns],
+        "값의 종류": [값의_종류(열) for 열 in df.columns],
+        "빈 값 개수": [int(df[열].isna().sum()) for 열 in df.columns],
+    })
+열설명 = st.session_state["열설명_바탕"]
 
-edited = st.data_editor(
-    table,
-    key="meaning_table",
+
+def 저장하기():
+    """우리말 뜻과 출처 칸에 적은 내용을 파일에 남긴다."""
+    뜻 = dict(zip(열설명["열 이름"], 열설명["우리말 뜻"]))
+    for 줄, 바뀐것 in st.session_state.get("열설명표", {}).get("edited_rows", {}).items():
+        if "우리말 뜻" in 바뀐것:
+            뜻[열설명["열 이름"][int(줄)]] = 바뀐것["우리말 뜻"] or ""
+    저장파일.parent.mkdir(exist_ok=True)
+    저장파일.write_text(json.dumps({"우리말 뜻": 뜻, "출처": st.session_state.get("출처", "")},
+                                   ensure_ascii=False), encoding="utf-8")
+
+
+st.data_editor(
+    열설명,
+    width="stretch",
     hide_index=True,
-    use_container_width=True,
-    disabled=["열 이름", "값의 종류", "빈 값 개수"],
-    column_config={
-        "우리말 뜻": st.column_config.TextColumn("우리말 뜻", width="medium"),
-        "값의 종류": st.column_config.TextColumn("값의 종류", width="large"),
-    },
+    disabled=["열 이름", "값의 종류", "빈 값 개수"],   # 우리말 뜻 칸만 고쳐 쓸 수 있다
+    key="열설명표",
+    on_change=저장하기,
 )
 
-# ---- 3. 처음 다섯 줄 -------------------------------------------------
-st.subheader("👀 데이터 처음 다섯 줄")
-st.dataframe(df.head(5), use_container_width=True, hide_index=True)
+st.subheader("앞 다섯 줄 그대로 보기")
+st.dataframe(df.head(5), width="stretch", hide_index=True)
 
-# ---- 4. 데이터 출처 --------------------------------------------------
-st.subheader("📚 데이터 출처")
-source_text = st.text_area(
-    "교재에 나온 출처를 적어 주세요.",
-    value=st.session_state.initial_source,
-    key="source_text",
-    height=140,
-    placeholder="여기에 출처를 적고, 바깥을 클릭하면 저장돼요.",
-)
-
-# ---- 저장: 내용이 바뀌었을 때만 json 파일에 쓴다 ---------------------
-new_record = {
-    "meanings": {
-        str(name): ("" if pd.isna(meaning) else str(meaning))
-        for name, meaning in zip(edited["열 이름"], edited["우리말 뜻"])
-    },
-    "source": source_text,
-}
-
-if new_record != st.session_state.saved:
-    if save_record(new_record):
-        st.session_state.saved = new_record
-        st.caption("💾 저장했어요. (내_기록/기록.json)")
-    else:
-        st.warning("저장하지 못했어요. 폴더 쓰기 권한을 확인해 주세요.")
-else:
-    st.caption("💾 적은 내용은 내_기록/기록.json 에 자동으로 저장돼요.")
+st.subheader("이 데이터는 어디서 왔는가")
+출처_기본값 = """출처: 캐글 Stroke Prediction Dataset (게시자 fedesoriano, 2021-01-26 공개)
+원본 주소: https://www.kaggle.com/datasets/fedesoriano/stroke-prediction-dataset
+라이선스: Data files © Original Authors
+게시자가 적은 문구: (Confidential Source) - Use only for educational purposes
+이 수업에서는 교육 목적으로만 사용합니다."""
+if "출처" not in st.session_state:
+    st.session_state["출처"] = 적어둔것.get("출처", 출처_기본값)
+st.text_area("교재를 보고 여기에 적습니다", height=170, key="출처", on_change=저장하기)
+st.caption("이 데이터를 올린 사람은 원본 데이터가 어디서 왔는지 밝히지 않았고, 교육 목적으로만 사용하라고 적어 두었습니다. "
+           "이름이나 생년월일이 없어 실제 환자를 찾아낼 수는 없지만, 출처를 알 수 없는 데이터로 얻은 결과를 "
+           "실제 의학적 판단에 사용해서는 안 됩니다.")
