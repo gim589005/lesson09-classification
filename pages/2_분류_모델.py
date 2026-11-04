@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -39,20 +37,8 @@ st.caption("뇌졸중(stroke=1)을 양성으로 두고, 선택한 속성으로 �
 # ------------------------------------------------------------------
 # 데이터 읽기
 # ------------------------------------------------------------------
+DATA_URL = "https://raw.githubusercontent.com/gim589005/data/refs/heads/main/stroke.csv"
 REQUIRED = ["id", "stroke"] + ALL_FEATURES
-
-
-def read_csv_any(source) -> pd.DataFrame:
-    """인코딩이 달라도 읽히도록 여러 방식으로 시도한다."""
-    last_err = None
-    for enc in ("utf-8-sig", "utf-8", "cp949"):
-        try:
-            if hasattr(source, "seek"):
-                source.seek(0)
-            return pd.read_csv(source, encoding=enc)
-        except Exception as e:  # noqa: BLE001
-            last_err = e
-    raise last_err
 
 
 def normalize(df: pd.DataFrame) -> pd.DataFrame | None:
@@ -66,50 +52,23 @@ def normalize(df: pd.DataFrame) -> pd.DataFrame | None:
 
 
 @st.cache_data
-def find_data() -> tuple[pd.DataFrame | None, list[str]]:
-    here = Path(__file__).resolve().parent
-    roots = []
-    for r in (here.parent, Path.cwd()):
-        if r not in roots:
-            roots.append(r)
-
-    tried: list[str] = []
-    seen = set()
-    for root in roots:
-        for path in sorted(root.rglob("*.csv")):
-            if path in seen or any(p in {".venv", "venv", "site-packages", "node_modules"} for p in path.parts):
-                continue
-            seen.add(path)
-            try:
-                df = normalize(read_csv_any(path))
-            except Exception as e:  # noqa: BLE001
-                tried.append(f"{path} → 읽기 실패 ({type(e).__name__})")
-                continue
-            if df is not None:
-                return df, tried
-            tried.append(f"{path} → 필요한 열이 없음")
-    return None, tried
+def load_data() -> pd.DataFrame:
+    """메인 페이지와 같은 주소에서 UTF-8 csv를 읽는다. bmi 열의 빈 값은 그대로 남는다."""
+    return pd.read_csv(DATA_URL, encoding="utf-8")
 
 
-df, tried = find_data()
-if df is None:
-    st.warning(
-        "프로젝트 안에서 뇌졸중 데이터 CSV를 찾지 못했습니다. "
-        "필요한 열: id, stroke, age, avg_glucose_level, bmi, hypertension, heart_disease"
-    )
-    with st.expander("살펴본 CSV 파일"):
-        if tried:
-            for line in tried:
-                st.text(line)
-        else:
-            st.text("CSV 파일이 하나도 없었습니다.")
+df = None
+try:
+    df = normalize(load_data())
+except Exception as e:  # noqa: BLE001
+    st.warning(f"데이터 주소에서 읽지 못했습니다 ({type(e).__name__}). 인터넷 연결을 확인하거나 CSV를 직접 올려 주세요.")
     uploaded = st.file_uploader("뇌졸중 데이터 CSV 올리기", type="csv")
     if uploaded is None:
         st.stop()
-    df = normalize(read_csv_any(uploaded))
-    if df is None:
-        st.error("올린 파일에 필요한 열(id, stroke, age, avg_glucose_level, bmi, hypertension, heart_disease)이 없습니다.")
-        st.stop()
+    df = normalize(pd.read_csv(uploaded, encoding="utf-8"))
+if df is None:
+    st.error("데이터에 필요한 열(id, stroke, age, avg_glucose_level, bmi, hypertension, heart_disease)이 없습니다.")
+    st.stop()
 
 # ------------------------------------------------------------------
 # 입력 속성 고르기
