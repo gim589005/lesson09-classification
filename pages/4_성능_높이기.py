@@ -413,4 +413,3 @@ if len(selected) >= 3:
             st.write(f"세 축이 아닌 속성은 테스트 데이터의 중앙값에 세워 두고 계산했어요: {fixed3}")
         for note in notes3:
             st.write(note)
-  
